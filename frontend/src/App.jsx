@@ -3,7 +3,7 @@ import Login from './components/Login';
 import RiskPanel from './components/RiskPanel';
 import SignalCard from './components/SignalCard';
 import { api } from './api';
-import { Search, BarChart3, Wifi, WifiOff } from 'lucide-react';
+import { Search, BarChart3, Wifi, WifiOff, LayoutGrid } from 'lucide-react';
 
 export default function App() {
   const [apiKey, setApiKey] = useState(localStorage.getItem('tm_key'));
@@ -13,14 +13,25 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [balance, setBalance] = useState(10000); 
 
-  // Load Pairs on Start
+  // Categorize Pairs Logic
+  const categories = {
+    "Forex Majors": ["EUR/USD", "GBP/USD", "USD/JPY", "USD/CHF", "AUD/USD", "USD/CAD", "NZD/USD"],
+    "Crypto Assets": ["BTC/USD", "ETH/USD", "LTC/USD", "XRP/USD"],
+    "Commodities": ["XAU/USD", "XAG/USD"],
+    "Forex Minors": [] // Will hold the rest
+  };
+
   useEffect(() => {
     async function loadConfig() {
       try {
         const data = await api.getPairs();
-        setPairList(data.pairs);
-        if (data.pairs?.length > 0) setPair(data.pairs[0]);
+        const allPairs = data.pairs || [];
+        setPairList(allPairs);
+        
+        // Ensure default is valid
+        if (allPairs.length > 0) setPair(allPairs[0]);
       } catch (e) {
+        // Fallback if API fails
         setPairList(["EUR/USD", "GBP/USD", "USD/JPY", "XAU/USD"]); 
       }
     }
@@ -33,26 +44,24 @@ export default function App() {
 
   const scan = async () => {
     setLoading(true);
-    setCurrentSignal(null); // Reset previous signal
+    setCurrentSignal(null);
     try {
       const data = await api.scan(pair, '5min', apiKey);
       
-      // LOGIC: Backend now returns 'WAIT' for forming signals or 'SIGNAL' for confirmed
       if (data.status === 'SIGNAL') {
         setCurrentSignal(data);
       } else {
-        // Show the "FORMING" state as a temporary alert or small card
-        alert(`⚠️ SIGNAL FORMING (${data.confidence}%)\nReason: ${data.strategy_breakdown?.filter || 'Wait for confirmation'}`);
+        // More professional alert
+        const reason = data.reason || data.strategy_breakdown?.filter || 'Market Structure Weak';
+        alert(`⚠️ NO TRADE (${data.confidence}%)\nStatus: ${data.status}\nReason: ${reason}`);
       }
     } catch (e) {
-      alert("❌ Scan Failed. Check connection.");
+      alert("❌ Connection Error. Is Backend awake?");
     }
     setLoading(false);
   };
 
   const handleTradeComplete = (result, payout) => {
-    // Only update balance if trade was actually taken (WIN/LOSS)
-    // SKIPPED trades do not affect balance
     if (result === 'WIN') {
       const invested = currentSignal.amount;
       setBalance(prev => prev - invested + payout);
@@ -60,7 +69,7 @@ export default function App() {
       const invested = currentSignal.amount;
       setBalance(prev => prev - invested);
     }
-    setCurrentSignal(null); // Clear card to get ready for next scan
+    setCurrentSignal(null);
   };
 
   return (
@@ -70,10 +79,10 @@ export default function App() {
       <header className="flex justify-between items-center mb-6 mt-2">
         <div>
           <h1 className="text-xl font-black text-white tracking-tighter">
-            TRADEMIND <span className="text-primary">V1</span>
+            TRADEMIND <span className="text-primary">OS</span>
           </h1>
-          <div className="text-[10px] text-gray-500 font-mono tracking-widest uppercase">
-            Decision Cockpit
+          <div className="text-[10px] text-gray-500 font-mono tracking-widest uppercase flex items-center gap-1">
+            <LayoutGrid size={10} /> Institutional Terminal
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -87,12 +96,12 @@ export default function App() {
       {/* --- RISK ENGINE --- */}
       <RiskPanel balance={balance} nextTrade={Math.round(balance * 0.02)} />
 
-      {/* --- SCANNER (LIVE OPPORTUNITIES ENTRY) --- */}
+      {/* --- CATEGORIZED SCANNER --- */}
       {!currentSignal && (
         <div className="bg-surface p-5 rounded-2xl border border-border mb-6 shadow-xl relative overflow-hidden">
           <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
           <label className="text-[10px] text-gray-500 font-bold uppercase mb-3 block tracking-wider flex items-center gap-2">
-             <BarChart3 size={12} /> Market Scanner
+             <BarChart3 size={12} /> Asset Selector
           </label>
           
           <div className="flex gap-2">
@@ -102,11 +111,25 @@ export default function App() {
                 onChange={(e) => setPair(e.target.value)}
                 className="w-full bg-black text-white font-mono text-lg p-4 rounded-xl border border-border outline-none focus:border-primary appearance-none transition-all"
               >
-                {pairList.length > 0 ? (
-                  pairList.map(p => <option key={p} value={p}>{p}</option>)
-                ) : (
-                  <option>Loading...</option>
-                )}
+                {/* Dynamically Categorized Options */}
+                {Object.entries(categories).map(([category, items]) => (
+                  <optgroup key={category} label={category} className="bg-zinc-900 text-gray-400 font-sans font-bold">
+                    {pairList
+                      .filter(p => {
+                        if (category === "Forex Minors") {
+                          // If not in other lists, it's a minor
+                          return !categories["Forex Majors"].includes(p) && 
+                                 !categories["Crypto Assets"].includes(p) && 
+                                 !categories["Commodities"].includes(p);
+                        }
+                        return items.includes(p);
+                      })
+                      .map(p => (
+                        <option key={p} value={p} className="text-white font-mono">{p}</option>
+                      ))
+                    }
+                  </optgroup>
+                ))}
               </select>
             </div>
             
@@ -117,6 +140,12 @@ export default function App() {
             >
               {loading ? <span className="animate-spin block text-xl">↻</span> : <Search size={24} />}
             </button>
+          </div>
+          
+          <div className="mt-3 flex justify-center">
+            <span className="text-[10px] text-gray-600 font-mono">
+              MODE: SNIPER (Safe for Free Server)
+            </span>
           </div>
         </div>
       )}
@@ -131,8 +160,10 @@ export default function App() {
       ) : (
         !loading && (
           <div className="flex-1 flex flex-col items-center justify-center text-gray-700 space-y-4 opacity-40">
-            <Search size={48} strokeWidth={1} />
-            <p className="text-xs font-mono tracking-widest">SCAN TO FIND OPPORTUNITIES</p>
+            <div className="w-16 h-16 border border-gray-800 rounded-full flex items-center justify-center">
+                <Search size={32} strokeWidth={1} />
+            </div>
+            <p className="text-xs font-mono tracking-widest uppercase">Select Asset & Scan</p>
           </div>
         )
       )}
